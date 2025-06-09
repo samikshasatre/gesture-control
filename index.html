@@ -1,134 +1,113 @@
-<!DOCTYPE html>
-<html>
-<head>
-  <title>Gesture Motor Control</title>
-
- <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
- <!-- MediaPipe Hands (if you're using hand gesture recognition) -->
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-
-<script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
-
-  <style>
-    video, canvas {
-      position: absolute;
-      width: 100%;
-      height: auto;
-      transform: scaleX(-1); /* Mirror the video */
-    }
-    body {
-      margin: 0;
-      overflow: hidden;
-    }
-  </style>
-</head>
 <body>
   <video class="input_video" autoplay playsinline muted></video>
   <canvas class="output_canvas"></canvas>
 
+  <!-- Load required scripts BEFORE main logic -->
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+
+  <!-- Main script -->
   <script>
-    const ESP_IP = "192.168.43.237"; // Replace with your NodeMCU IP
+    window.onload = () => {
+      const ESP_IP = "192.168.43.237"; // Replace with your NodeMCU IP
 
-    const videoElement = document.getElementsByClassName('input_video')[0];
-    const canvasElement = document.getElementsByClassName('output_canvas')[0];
-    const canvasCtx = canvasElement.getContext('2d');
+      const videoElement = document.getElementsByClassName('input_video')[0];
+      const canvasElement = document.getElementsByClassName('output_canvas')[0];
+      const canvasCtx = canvasElement.getContext('2d');
 
-    let lastCommand = "";
-    let lastY = null;
+      let lastCommand = "";
+      let lastY = null;
 
-    function sendCommand(cmd) {
-      if (cmd !== lastCommand) {
-        lastCommand = cmd;
-        fetch(`http://${ESP_IP}/${cmd}`)
-          .then(res => console.log(`Sent: ${cmd}`))
-          .catch(err => console.error("ESP Error:", err));
-      }
-    }
-
-    function detectGesture(landmarks) {
-      const fingerStates = [];
-
-      // Thumb
-      fingerStates.push(landmarks[4].x < landmarks[3].x);
-
-      // Fingers
-      fingerStates.push(landmarks[8].y < landmarks[6].y);   // Index
-      fingerStates.push(landmarks[12].y < landmarks[10].y); // Middle
-      fingerStates.push(landmarks[16].y < landmarks[14].y); // Ring
-      fingerStates.push(landmarks[20].y < landmarks[18].y); // Pinky
-
-      const extended = fingerStates.filter(state => state).length;
-
-      if (extended >= 4) return "pump_on"; 
-      if (extended === 0) return "pump_off"; 
-
-      if (fingerStates[1] && fingerStates[2] && !fingerStates[3] && !fingerStates[4]) {
-        return "stop_all"; 
-      }
-
-      if (lastY && landmarks[0].y < lastY - 0.03) {
-        lastY = landmarks[0].y;
-        return "motor_on"; 
-      }
-
-      if (lastY && landmarks[0].y > lastY + 0.03) {
-        lastY = landmarks[0].y;
-        return "motor_off"; 
-      }
-
-      lastY = landmarks[0].y;
-      return "";
-    }
-
-    function onResults(results) {
-      canvasCtx.save();
-      canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
-      canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-
-      if (results.multiHandLandmarks) {
-        for (const landmarks of results.multiHandLandmarks) {
-          drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
-          drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
-
-          const cmd = detectGesture(landmarks);
-          if (cmd) sendCommand(cmd);
+      function sendCommand(cmd) {
+        if (cmd !== lastCommand) {
+          lastCommand = cmd;
+          fetch(`http://${ESP_IP}/${cmd}`)
+            .then(res => console.log(`Sent: ${cmd}`))
+            .catch(err => console.error("ESP Error:", err));
         }
       }
 
-      canvasCtx.restore();
-    }
+      function detectGesture(landmarks) {
+        const fingerStates = [];
+        fingerStates.push(landmarks[4].x < landmarks[3].x); // Thumb
+        fingerStates.push(landmarks[8].y < landmarks[6].y);   // Index
+        fingerStates.push(landmarks[12].y < landmarks[10].y); // Middle
+        fingerStates.push(landmarks[16].y < landmarks[14].y); // Ring
+        fingerStates.push(landmarks[20].y < landmarks[18].y); // Pinky
 
-    const hands = new Hands({
-      locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
-    });
+        const extended = fingerStates.filter(state => state).length;
 
-    hands.setOptions({
-      maxNumHands: 1,
-      modelComplexity: 1,
-      minDetectionConfidence: 0.7,
-      minTrackingConfidence: 0.7
-    });
+        if (extended >= 4) return "pump_on"; 
+        if (extended === 0) return "pump_off"; 
 
-    hands.onResults(onResults);
+        if (fingerStates[1] && fingerStates[2] && !fingerStates[3] && !fingerStates[4]) {
+          return "stop_all"; 
+        }
 
-    navigator.mediaDevices.getUserMedia({ video: true })
-      .then(function (stream) {
-        videoElement.srcObject = stream;
-        videoElement.play();
+        if (lastY && landmarks[0].y < lastY - 0.03) {
+          lastY = landmarks[0].y;
+          return "motor_on"; 
+        }
 
-        const camera = new Camera(videoElement, {
-          onFrame: async () => {
-            await hands.send({ image: videoElement });
-          },
-          width: 640,
-          height: 480
-        });
+        if (lastY && landmarks[0].y > lastY + 0.03) {
+          lastY = landmarks[0].y;
+          return "motor_off"; 
+        }
 
-        camera.start();
-      })
-      .catch(function (err) {
-        alert("Failed to acquire camera feed:\n" + err.name + ": " + err.message);
+        lastY = landmarks[0].y;
+        return "";
+      }
+
+      function onResults(results) {
+        canvasCtx.save();
+        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
+
+        if (results.multiHandLandmarks) {
+          for (const landmarks of results.multiHandLandmarks) {
+            drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
+            drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
+
+            const cmd = detectGesture(landmarks);
+            if (cmd) sendCommand(cmd);
+          }
+        }
+
+        canvasCtx.restore();
+      }
+
+      const hands = new Hands({
+        locateFile: (file) => `https://cdn.jsdelivr.net/npm/@mediapipe/hands/${file}`
       });
+
+      hands.setOptions({
+        maxNumHands: 1,
+        modelComplexity: 1,
+        minDetectionConfidence: 0.7,
+        minTrackingConfidence: 0.7
+      });
+
+      hands.onResults(onResults);
+
+      navigator.mediaDevices.getUserMedia({ video: true })
+        .then(function (stream) {
+          videoElement.srcObject = stream;
+          videoElement.play();
+
+          const camera = new Camera(videoElement, {
+            onFrame: async () => {
+              await hands.send({ image: videoElement });
+            },
+            width: 640,
+            height: 480
+          });
+
+          camera.start();
+        })
+        .catch(function (err) {
+          alert("Failed to acquire camera feed:\n" + err.name + ": " + err.message);
+        });
+    };
   </script>
 </body>
-</html>
