@@ -2,47 +2,52 @@
 <html>
 <head>
   <title>Gesture Motor Control</title>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands/hands.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils/camera_utils.js"></script>
-  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils/drawing_utils.js"></script>
+ <script src="https://cdn.jsdelivr.net/npm/@mediapipe/hands@0.4/hands.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/camera_utils@0.4/camera_utils.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@mediapipe/drawing_utils@0.4/drawing_utils.min.js"></script>
   <style>
     video, canvas {
       position: absolute;
       width: 100%;
       height: auto;
-      transform: scaleX(-1); /* mirror video */
+      transform: scaleX(-1); /* Mirror the video */
     }
-    body { margin: 0; overflow: hidden; }
+    body {
+      margin: 0;
+      overflow: hidden;
+    }
   </style>
 </head>
 <body>
-  <video class="input_video"></video>
+  <video class="input_video" autoplay playsinline muted></video>
   <canvas class="output_canvas"></canvas>
 
   <script>
-    const ESP_IP = "192.168.43.237"; // 🔁 Replace with your NodeMCU IP
+    const ESP_IP = "192.168.43.237"; // Replace with your NodeMCU IP
+
     const videoElement = document.getElementsByClassName('input_video')[0];
     const canvasElement = document.getElementsByClassName('output_canvas')[0];
     const canvasCtx = canvasElement.getContext('2d');
 
     let lastCommand = "";
+    let lastY = null;
 
     function sendCommand(cmd) {
       if (cmd !== lastCommand) {
         lastCommand = cmd;
         fetch(`http://${ESP_IP}/${cmd}`)
           .then(res => console.log(`Sent: ${cmd}`))
-          .catch(err => console.error(err));
+          .catch(err => console.error("ESP Error:", err));
       }
     }
 
     function detectGesture(landmarks) {
-      const fingerStates = []; // true = extended
+      const fingerStates = [];
 
       // Thumb
       fingerStates.push(landmarks[4].x < landmarks[3].x);
 
-      // Fingers: tip.y < pip.y means finger is extended
+      // Fingers
       fingerStates.push(landmarks[8].y < landmarks[6].y);   // Index
       fingerStates.push(landmarks[12].y < landmarks[10].y); // Middle
       fingerStates.push(landmarks[16].y < landmarks[14].y); // Ring
@@ -50,40 +55,33 @@
 
       const extended = fingerStates.filter(state => state).length;
 
-      // ✋ Palm Open
-      if (extended >= 4) return "pump_on";
+      if (extended >= 4) return "pump_on"; 
+      if (extended === 0) return "pump_off"; 
 
-      // ✊ Fist
-      if (extended === 0) return "pump_off";
-
-      // ✌ Peace Sign: Index and Middle only
       if (fingerStates[1] && fingerStates[2] && !fingerStates[3] && !fingerStates[4]) {
-        return "stop_all";
+        return "stop_all"; 
       }
 
-      // 👆 Swipe Up detection using upward hand movement (use y diff)
       if (lastY && landmarks[0].y < lastY - 0.03) {
         lastY = landmarks[0].y;
-        return "motor_on";
+        return "motor_on"; 
       }
 
-      // 👇 Swipe Down
       if (lastY && landmarks[0].y > lastY + 0.03) {
         lastY = landmarks[0].y;
-        return "motor_off";
+        return "motor_off"; 
       }
 
-      lastY = landmarks[0].y; // update wrist y for next frame
+      lastY = landmarks[0].y;
       return "";
     }
-
-    let lastY = null;
 
     function onResults(results) {
       canvasCtx.save();
       canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
       canvasCtx.drawImage(results.image, 0, 0, canvasElement.width, canvasElement.height);
-      if (results.multiHandLandmarks && results.multiHandLandmarks.length > 0) {
+
+      if (results.multiHandLandmarks) {
         for (const landmarks of results.multiHandLandmarks) {
           drawConnectors(canvasCtx, landmarks, HAND_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
           drawLandmarks(canvasCtx, landmarks, { color: '#FF0000', lineWidth: 2 });
@@ -92,6 +90,7 @@
           if (cmd) sendCommand(cmd);
         }
       }
+
       canvasCtx.restore();
     }
 
@@ -108,15 +107,24 @@
 
     hands.onResults(onResults);
 
-    const camera = new Camera(videoElement, {
-      onFrame: async () => {
-        await hands.send({ image: videoElement });
-      },
-      width: 640,
-      height: 480
-    });
+    navigator.mediaDevices.getUserMedia({ video: true })
+      .then(function (stream) {
+        videoElement.srcObject = stream;
+        videoElement.play();
 
-    camera.start();
+        const camera = new Camera(videoElement, {
+          onFrame: async () => {
+            await hands.send({ image: videoElement });
+          },
+          width: 640,
+          height: 480
+        });
+
+        camera.start();
+      })
+      .catch(function (err) {
+        alert("Failed to acquire camera feed:\n" + err.name + ": " + err.message);
+      });
   </script>
 </body>
 </html>
